@@ -1,0 +1,89 @@
+---
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  name: rancher
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: rancher
+    spec:
+      serviceAccountName: rancher-admin
+      containers:
+      - image: rancher/rancher:v2.0.5
+        imagePullPolicy: IfNotPresent
+        name: rancher-server
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        - containerPort: 443
+          protocol: TCP
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: rancher-crb
+subjects:
+- kind: ServiceAccount
+  name: rancher-admin
+  namespace: tools ### Whatever namespace you want, I used tools because I already had my *.59s.io wildcard certificate stored there.
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-service
+  labels:
+    app: rancher
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  - port: 443
+    targetPort: 443
+    protocol: TCP
+    name: https
+  selector:
+    app: rancher
+---
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: rancher-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    kubernetes.io/tls-acme: "true"
+spec:
+  rules:
+  - host: rancher.59s.io  # FQDN to access rancher server
+    http:
+      paths:
+      - backend:
+          serviceName: rancher-service # Only running http to the container because my ingress handles ssl termination. You can see that by hitting rancher.59s.io
+          servicePort: 80
+  tls:
+  - hosts:
+    - rancher.59s.io
+    secretName: 59s-io-tls # this is the name of the kubernetes secret that will hold your tls certificate
+---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: rancher-admin
+---
+apiVersion: v1
+data:
+  tls.crt: LS0t...RVJUSUZJQ0FURS0tLS0tCg== # Base64 encoded public key
+  tls.key: LS0tL...tFWS0tLS0tCg== # Base64 encoded private key
+kind: Secret
+metadata:
+  name: 59s-io-tls
+  namespace: tools
+type: kubernetes.io/tls
